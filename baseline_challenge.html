@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Baseline Challenge — labeled learning + imbalance (browser / Web Bluetooth)</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, sans-serif; background: #f4f5f7; color: #1a1a1a; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1e1f22; color: #e6e6e6; }
+    .card { background: #2a2b2f !important; border-color: #3a3b40 !important; }
+    input, select, button { background: #34353a; color: #e6e6e6; border-color: #4a4b50; }
+    .muted { color: #9aa0a6 !important; }
+  }
+  header { padding: 12px 16px; background: #d1170f; color: #fff; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 18px; margin: 0; }
+  header .status { margin-left: auto; font-weight: 600; }
+  .wrap { display: flex; gap: 16px; padding: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .col-controls { flex: 0 0 340px; display: flex; flex-direction: column; gap: 12px; }
+  .col-main { flex: 1 1 480px; min-width: 360px; display: flex; flex-direction: column; gap: 16px; }
+  .card { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; margin: 0 0 8px; color: #666; }
+  label.row { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: 8px; margin: 4px 0; }
+  input, select, button { padding: 6px 8px; border: 1px solid #cfcfcf; border-radius: 6px; font: inherit; }
+  button { cursor: pointer; background: #f0f0f0; }
+  button.primary { background: #d1170f; color: #fff; border-color: #d1170f; }
+  button.wide { width: 100%; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-row { display: flex; gap: 8px; }
+  .btn-row > * { flex: 1; }
+  .muted { color: #888; }
+  .hint { font-size: 12px; color: #888; margin-top: 6px; }
+  .devstat { margin: 4px 0; font-variant-numeric: tabular-nums; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; vertical-align:middle; background:#c33; }
+  .dot.on { background:#2a9d3f; }
+  .warn { font-size:12px; background:#fff3cd; color:#7a5b00; border:1px solid #ffe08a; border-radius:6px; padding:6px 8px; margin-top:8px; }
+  @media (prefers-color-scheme: dark){ .warn{ background:#3a3320; color:#f0d890; border-color:#5a4d20; } }
+  .hidden { display: none; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .pill.train { background: #ffe9b3; color: #7a5b00; }
+  .pill.run { background: #bce8c6; color: #0b5d24; }
+  @media (prefers-color-scheme: dark){ .pill.train{background:#4a3d10;color:#f0d890;} .pill.run{background:#1d3d24;color:#bce8c6;} }
+  .barrow { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .barlabel { flex: 0 0 90px; font-size: 12px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bartrack { flex: 1; background: #eee; border-radius: 4px; height: 16px; position: relative; overflow: hidden; }
+  @media (prefers-color-scheme: dark){ .bartrack{ background:#3a3b40; } }
+  .barfill { height: 100%; background: #1f77b4; }
+  .barcount { flex: 0 0 24px; font-size: 12px; text-align: left; }
+  .guessbox { border-radius: 8px; padding: 12px; text-align: center; }
+  .guessbox h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #666; }
+  .guessbox .label { font-size: 22px; font-weight: 700; }
+  .guessbox.baseline { background: #f3ecff; }
+  .guessbox.real { background: #e3f6e8; }
+  @media (prefers-color-scheme: dark){ .guessbox.baseline{background:#332a4a;} .guessbox.real{background:#1d3d24;} }
+  .guesses { display: flex; gap: 12px; }
+  .guesses > div { flex: 1; }
+  .tally { display:flex; gap: 8px; margin-top: 8px; }
+  .tally button { flex: 1; }
+  .accrow { display:flex; justify-content: space-between; font-size: 12px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Baseline Challenge</h1>
+  <span class="muted">majority guess vs. real k-NN vote</span>
+  <span class="status" id="connStatus">Not connected</span>
+</header>
+
+<div class="wrap">
+  <div class="col-controls">
+    <div class="card">
+      <h2>Hardware</h2>
+      <label class="row">Backend
+        <select id="backendSel">
+          <option value="sim">Simulated</option>
+          <option value="lego">LEGO Hardware (Bluetooth)</option>
+        </select>
+      </label>
+      <div id="legoWrap" style="display:none">
+        <div class="hint">Turn on each LEGO device, then connect it. Pick the motor first, then connect again and pick the sensor.</div>
+        <div class="devstat"><span class="dot" id="motorDot"></span><span id="motorStat">Motor: not connected</span></div>
+        <div class="devstat"><span class="dot" id="sensorDot"></span><span id="sensorStat">Sensor: not connected</span></div>
+        <button class="primary wide" id="addDeviceBtn" style="margin-top:8px">Connect a LEGO device…</button>
+        <button class="wide" id="disconnectBtn" style="margin-top:6px;display:none">Disconnect all</button>
+        <div class="warn hidden" id="btWarn">This browser doesn't support Web Bluetooth. Use <b>Chrome</b> or <b>Edge</b> on desktop or Android, over an <b>https://</b> link.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Sensor inputs</h2>
+      <div class="muted" style="font-size:12px">Tick every reading the model should compare on:</div>
+      <div id="featureChecks"></div>
+    </div>
+
+    <div class="card" id="simCard">
+      <h2>Simulation inputs</h2>
+      <div id="simSensors"></div>
+      <div id="simMotorWrap">
+        <div class="muted" style="font-size:12px">Motor position (training)</div>
+        <input type="range" min="-180" max="180" value="0" id="simMotor" class="slider">
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Mode <span id="modePill" class="pill train">TRAINING</span></h2>
+      <button class="wide" id="modeBtn">Switch to RUN mode</button>
+    </div>
+
+    <div class="card">
+      <h2>Train a labeled example</h2>
+      <div class="hint">Type a label name (e.g. "Cat" or "Bin A"), hand-position the arm/sensor for that example, then record it.</div>
+      <input type="text" id="labelInput" placeholder="Label name" style="width:100%">
+      <button class="wide primary" id="recordBtn" style="margin-top:6px">Record example for this label</button>
+      <button class="wide" id="undoBtn" style="margin-top:6px">Undo last example</button>
+      <button class="wide" id="clearBtn" style="margin-top:6px">Clear all examples</button>
+      <div class="btn-row" style="margin-top:6px">
+        <button id="saveBtn">Save…</button>
+        <button id="loadBtn">Load…</button>
+        <input type="file" id="loadFile" accept="application/json" class="hidden">
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Live</h2>
+      <div class="readout" id="rSensor">Sensor: —</div>
+      <div class="readout" id="rMotor">Motor: —</div>
+      <div class="readout" id="rCount">Recorded examples: 0</div>
+    </div>
+  </div>
+
+  <div class="col-main">
+    <div class="card">
+      <h2>Examples per label (imbalance shows up here)</h2>
+      <div id="barChart"></div>
+      <div class="hint">The Real Model looks at the 3 closest examples and votes. The Baseline ignores the sensor entirely and always guesses whichever label has the most examples.</div>
+    </div>
+
+    <div class="card">
+      <h2>Run mode — compare the guesses</h2>
+      <div class="guesses">
+        <div>
+          <div class="guessbox baseline">
+            <h3>Baseline guess</h3>
+            <div class="label" id="baselineLabel">—</div>
+          </div>
+          <div class="tally">
+            <button id="baselineCorrect">✅ Correct</button>
+            <button id="baselineWrong">❌ Wrong</button>
+          </div>
+          <div class="accrow"><span id="baselineAcc">0 / 0</span><span id="baselineAccPct">—</span></div>
+        </div>
+        <div>
+          <div class="guessbox real">
+            <h3>Real model guess</h3>
+            <div class="label" id="realLabel">—</div>
+          </div>
+          <div class="tally">
+            <button id="realCorrect">✅ Correct</button>
+            <button id="realWrong">❌ Wrong</button>
+          </div>
+          <div class="accrow"><span id="realAcc">0 / 0</span><span id="realAccPct">—</span></div>
+        </div>
+      </div>
+      <div class="hint">The arm physically moves to the <b>real model's</b> guess. The baseline is shown for comparison only. Tap Correct/Wrong after each new guess to track accuracy — try training a lopsided dataset (lots of one label, barely any of another) and watch the baseline's accuracy hold up misleadingly well, until you test the minority label.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+// ============================================================================
+// Baseline Challenge — reuses the LEGO BLE protocol layer from Smart Motor,
+// but replaces the model with labeled k-NN voting + a majority-label baseline.
+// ============================================================================
+
+const MODE_TRAINING = "TRAINING", MODE_RUN = "RUN";
+const K = 3; // how many neighbors the real model votes among
+
+const FEATURESETS = {
+  sim:        ["valueX", "valueY"],
+  color:      ["reflection", "hue", "color", "value", "saturation"],
+  controller: ["leftPercent", "rightPercent", "leftAngle", "rightAngle"],
+};
+const DEFAULT_FEATURES = {
+  sim:        ["valueX"],
+  color:      ["reflection"],
+  controller: ["leftPercent", "rightPercent"],
+};
+
+// ---------------------------------------------------------------------------
+// Labeled k-NN + baseline model
+// ---------------------------------------------------------------------------
+class LabeledModel {
+  constructor() { this._points = []; this._features = []; }
+  get features() { return this._features.slice(); }
+  setFeatures(features) {
+    features = features.slice();
+    if (arraysEqual(features, this._features)) return true;
+    if (this._points.length) return false;
+    this._features = features;
+    return true;
+  }
+  addPoint(vec, label, pos) {
+    this._points.push({ vec: vec.map(Number), label: String(label), pos: pos.slice() });
+  }
+  clear() { this._points = []; }
+  removeLast() { return this._points.length ? (this._points.pop(), true) : false; }
+  get length() { return this._points.length; }
+  labelCounts() {
+    const counts = {};
+    for (const p of this._points) counts[p.label] = (counts[p.label] || 0) + 1;
+    return counts;
+  }
+  // baseline: majority label overall, ignoring the sensor vector entirely
+  predictBaseline() {
+    const counts = this.labelCounts();
+    let best = null, bc = -1;
+    for (const [label, c] of Object.entries(counts)) if (c > bc) { bc = c; best = label; }
+    return best;
+  }
+  // real model: k nearest neighbors vote on label
+  predictReal(vec) {
+    if (!this._points.length) return null;
+    const dists = this._points.map(p => {
+      let d = 0;
+      for (let i = 0; i < p.vec.length; i++) { const t = p.vec[i] - (vec[i] ?? 0); d += t * t; }
+      return { d, label: p.label, pos: p.pos };
+    });
+    dists.sort((a, b) => a.d - b.d);
+    const top = dists.slice(0, Math.min(K, dists.length));
+    const votes = {};
+    for (const t of top) votes[t.label] = (votes[t.label] || 0) + 1;
+    let best = null, bv = -1;
+    for (const [label, v] of Object.entries(votes)) if (v > bv) { bv = v; best = label; }
+    return best;
+  }
+  // average trained motor position for a given label — where the arm moves
+  averagePositionFor(label) {
+    const pts = this._points.filter(p => p.label === label);
+    if (!pts.length) return null;
+    const n = pts[0].pos.length;
+    const sum = new Array(n).fill(0);
+    for (const p of pts) for (let i = 0; i < n; i++) sum[i] += p.pos[i] ?? 0;
+    return sum.map(s => s / pts.length);
+  }
+  toJSON() {
+    return { features: this.features, points: this._points.map(p => ({ vec: p.vec, label: p.label, pos: p.pos })) };
+  }
+  loadObj(data) {
+    this._features = (data && data.features) || [];
+    this._points = ((data && data.points) || []).map(p => ({ vec: p.vec.map(Number), label: String(p.label), pos: p.pos.map(Number) }));
+  }
+}
+function arraysEqual(a, b) { return a.length === b.length && a.every((x, i) => x === b[i]); }
+
+// ---------------------------------------------------------------------------
+// LEGO BLE protocol — unchanged from Smart Motor, so it talks to the same hardware
+// ---------------------------------------------------------------------------
+const LEGO = {
+  SERVICE: "0000fd02-0000-1000-8000-00805f9b34fb",
+  WRITE:   "0000fd02-0001-1000-8000-00805f9b34fb",
+  NOTIFY:  "0000fd02-0002-1000-8000-00805f9b34fb",
+  INFO_REQUEST: 0, INFO_RESPONSE: 1,
+  DEVICE_NOTIFICATION_REQUEST: 40, DEVICE_NOTIFICATION_RESPONSE: 41,
+  DEVICE_NOTIFICATION: 60,
+  LIGHT_COLOR_COMMAND: 110,
+  MOTOR_RESET_RELATIVE_POSITION_COMMAND: 120,
+  MOTOR_RUN_TO_RELATIVE_POSITION_COMMAND: 130,
+  MOTOR_STOP_COMMAND: 138,
+  MOTOR_SET_SPEED_COMMAND: 140,
+  SUB_MOTOR: 10, SUB_COLOR: 12, SUB_CONTROLLER: 15,
+  PG_SINGLE_MOTOR: 512, PG_DOUBLE_MOTOR: 513, PG_COLOR_SENSOR: 514, PG_CONTROLLER: 515,
+};
+const FW2APP_COLOR = { "-1": 0, 0: 0, 9: 1, 7: 2, 3: 3, 5: 4, 6: 5, 2: 6, 10: 7, 1: 8, 8: 9, 4: 10 };
+
+function u8(...bytes) { return Uint8Array.from(bytes); }
+function motorSetSpeed(mask, speed) {
+  const s = Math.max(-100, Math.min(100, Math.round(speed)));
+  return u8(LEGO.MOTOR_SET_SPEED_COMMAND, mask, s & 0xff);
+}
+function motorRunToRel(mask, pos) {
+  const b = new Uint8Array(6); const dv = new DataView(b.buffer);
+  dv.setUint8(0, LEGO.MOTOR_RUN_TO_RELATIVE_POSITION_COMMAND);
+  dv.setUint8(1, mask);
+  dv.setInt32(2, Math.round(pos), true);
+  return b;
+}
+function deviceNotifRequest(delayMs) {
+  const b = new Uint8Array(3); const dv = new DataView(b.buffer);
+  dv.setUint8(0, LEGO.DEVICE_NOTIFICATION_REQUEST);
+  dv.setUint16(1, delayMs, true);
+  return b;
+}
+function concatBytes(list) {
+  let n = 0; for (const a of list) n += a.length;
+  const out = new Uint8Array(n); let o = 0;
+  for (const a of list) { out.set(a, o); o += a.length; }
+  return out;
+}
+
+class LegoDevice {
+  constructor(device) {
+    this.device = device;
+    this.writeChar = null;
+    this.role = null; this.kind = null;
+    this.pending = {};
+    this.motorPos = { 1: 0, 2: 0 };
+    this.readings = {};
+    this.onchange = () => {};
+  }
+  async connectGatt() {
+    const server = await this.device.gatt.connect();
+    const svc = await server.getPrimaryService(LEGO.SERVICE);
+    this.writeChar = await svc.getCharacteristic(LEGO.WRITE);
+    const notifyChar = await svc.getCharacteristic(LEGO.NOTIFY);
+    await notifyChar.startNotifications();
+    notifyChar.addEventListener("characteristicvaluechanged", e => this._onNotify(e.target.value));
+    this.device.addEventListener("gattserverdisconnected", () => this.onchange());
+  }
+  async handshake() {
+    await this.send(u8(LEGO.INFO_REQUEST));
+    const info = await this._await(LEGO.INFO_RESPONSE, 3000);
+    if (info) {
+      const pg = info.getUint16(14, true);
+      if (pg === LEGO.PG_SINGLE_MOTOR) { this.role = "motor"; this.kind = "single"; }
+      else if (pg === LEGO.PG_DOUBLE_MOTOR) { this.role = "motor"; this.kind = "double"; }
+      else if (pg === LEGO.PG_COLOR_SENSOR) { this.role = "sensor"; this.kind = "color"; }
+      else if (pg === LEGO.PG_CONTROLLER) { this.role = "sensor"; this.kind = "controller"; }
+    }
+    await this.send(deviceNotifRequest(100));
+    await this._await(LEGO.DEVICE_NOTIFICATION_RESPONSE, 1500);
+    return this.role != null;
+  }
+  get connected() { return !!(this.device.gatt && this.device.gatt.connected); }
+  disconnect() { try { if (this.connected) this.device.gatt.disconnect(); } catch (e) {} }
+  async send(bytes) {
+    if (!this.writeChar) return;
+    try { await this.writeChar.writeValueWithoutResponse(bytes); }
+    catch (e) { try { await this.writeChar.writeValue(bytes); } catch (e2) {} }
+  }
+  _await(responseId, timeout) {
+    return new Promise(res => {
+      this.pending[responseId] = res;
+      setTimeout(() => { if (this.pending[responseId]) { delete this.pending[responseId]; res(null); } }, timeout);
+    });
+  }
+  _onNotify(dv) {
+    if (dv.byteLength < 1) return;
+    const id = dv.getUint8(0);
+    if (this.pending[id]) {
+      const r = this.pending[id]; delete this.pending[id];
+      r(new DataView(dv.buffer, dv.byteOffset + 1, dv.byteLength - 1));
+      return;
+    }
+    if (id === LEGO.DEVICE_NOTIFICATION) this._parseDeviceNotification(dv);
+  }
+  _parseDeviceNotification(dv) {
+    if (dv.byteLength < 3) return;
+    let off = 3;
+    const end = dv.byteLength;
+    while (off < end) {
+      const type = dv.getUint8(off); off += 1;
+      if (type === LEGO.SUB_MOTOR) {
+        if (off + 12 > end) break;
+        const mask = dv.getUint8(off);
+        const position = dv.getInt32(off + 7, true);
+        this.motorPos[mask] = position;
+        off += 12;
+      } else if (type === LEGO.SUB_COLOR) {
+        if (off + 12 > end) break;
+        const fwColor = dv.getInt8(off);
+        const reflection = dv.getUint8(off + 1);
+        const hue = dv.getUint16(off + 8, true);
+        const saturation = dv.getUint8(off + 10);
+        const value = dv.getUint8(off + 11);
+        this.readings = { reflection, hue, saturation, value, color: FW2APP_COLOR[String(fwColor)] ?? 0 };
+        off += 12;
+      } else if (type === LEGO.SUB_CONTROLLER) {
+        if (off + 6 > end) break;
+        this.readings = {
+          leftPercent: dv.getInt8(off), rightPercent: dv.getInt8(off + 1),
+          leftAngle: dv.getInt16(off + 2, true), rightAngle: dv.getInt16(off + 4, true),
+        };
+        off += 6;
+      } else break;
+    }
+    this.onchange();
+  }
+}
+
+class SimulatedBackend {
+  constructor() {
+    this.name = "Simulated"; this.isSim = true;
+    this.sensorKind = "sim"; this.motorKind = "single";
+    this._sensor = { valueX: 50, valueY: 50 };
+    this._pos = 0; this._target = 0; this._speed = 50;
+  }
+  get sensorFeatures() { return FEATURESETS.sim; }
+  get connected() { return true; }
+  setSimSensor(f, v) { this._sensor[f] = +v; }
+  setManualMotor(v) { this._pos = +v; this._target = +v; }
+  readSensorVector(features) { return features.map(f => this._sensor[f] ?? 0); }
+  readMotorPosition() {
+    const diff = this._target - this._pos;
+    const frac = Math.max(0.05, (this._speed / 100) * 0.35);
+    this._pos += diff * frac;
+    if (Math.abs(diff) < 0.5) this._pos = this._target;
+    return [this._pos];
+  }
+  moveMotorTo(pos, speed) { this._target = +pos[0]; if (speed != null) this._speed = +speed; }
+  disconnect() {}
+}
+
+class LegoBackend {
+  constructor() {
+    this.name = "LEGO Hardware"; this.isSim = false;
+    this.motorDev = null; this.sensorDev = null;
+    this.onchange = () => {};
+  }
+  get sensorKind() { return this.sensorDev ? this.sensorDev.kind : "color"; }
+  get connected() { return !!(this.motorDev && this.motorDev.connected && this.sensorDev && this.sensorDev.connected); }
+  get sensorFeatures() { return FEATURESETS[this.sensorKind] || FEATURESETS.color; }
+  async addDevice() {
+    if (!navigator.bluetooth) throw new Error("Web Bluetooth is not available in this browser.");
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [LEGO.SERVICE] }], optionalServices: [LEGO.SERVICE],
+    });
+    const dev = new LegoDevice(device);
+    dev.onchange = () => this.onchange();
+    await dev.connectGatt();
+    const ok = await dev.handshake();
+    if (!ok) { dev.disconnect(); throw new Error("Connected, but the device didn't identify itself. Try again."); }
+    if (dev.role === "motor") { if (this.motorDev) this.motorDev.disconnect(); this.motorDev = dev; }
+    else { if (this.sensorDev) this.sensorDev.disconnect(); this.sensorDev = dev; }
+    this.onchange();
+    return dev.role;
+  }
+  readSensorVector(features) {
+    const r = this.sensorDev ? this.sensorDev.readings : {};
+    return features.map(f => r[f] ?? 0);
+  }
+  readMotorPosition() {
+    if (!this.motorDev) return [0];
+    const p = this.motorDev.motorPos;
+    return [p[1] || 0];
+  }
+  moveMotorTo(pos, speed) {
+    if (!this.motorDev) return;
+    const msgs = [];
+    if (speed != null) msgs.push(motorSetSpeed(1, speed));
+    msgs.push(motorRunToRel(1, pos[0]));
+    this.motorDev.send(concatBytes(msgs));
+  }
+  disconnect() {
+    if (this.motorDev) { this.motorDev.disconnect(); this.motorDev = null; }
+    if (this.sensorDev) { this.sensorDev.disconnect(); this.sensorDev = null; }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Application state
+// ---------------------------------------------------------------------------
+class BaselineApp {
+  constructor() {
+    this.backend = new SimulatedBackend();
+    this.mode = MODE_TRAINING;
+    this.model = new LabeledModel();
+    this.selectedFeatures = [];
+    this._configKey = "";
+    this._latest = { vec: [0], feats: [], pos: [0] };
+    this.lastRealLabel = null, this.lastBaselineLabel = null;
+    this.tally = { baseline: { c: 0, w: 0 }, real: { c: 0, w: 0 } };
+    this.applyDefaults();
+  }
+  backendKey() { return this.backend.isSim ? "sim" : this.backend.sensorKind; }
+  applyDefaults() {
+    const key = this.backendKey();
+    let f = this.backend.sensorFeatures.filter(x => (DEFAULT_FEATURES[key] || []).includes(x));
+    if (!f.length) f = [this.backend.sensorFeatures[0]];
+    this.selectedFeatures = f;
+    this.model = new LabeledModel();
+    this.model.setFeatures(f);
+    this._configKey = this.backendKey();
+  }
+  maybeReconfigure() {
+    const key = this.backendKey();
+    if (key !== this._configKey) this.applyDefaults();
+  }
+  setBackend(name) {
+    if (this.backend.connected && !this.backend.isSim) return;
+    this.backend.disconnect();
+    this.backend = name === "lego" ? new LegoBackend() : new SimulatedBackend();
+    this.applyDefaults();
+  }
+  setFeatures(features) {
+    features = features.filter(f => this.backend.sensorFeatures.includes(f));
+    if (!features.length) features = [this.backend.sensorFeatures[0]];
+    if (!this.model.setFeatures(features)) { this.model.clear(); this.model.setFeatures(features); }
+    this.selectedFeatures = features;
+  }
+  setMode(m) { this.mode = m === MODE_RUN ? MODE_RUN : MODE_TRAINING; }
+  record(label) {
+    if (!this.backend.connected) throw new Error("Not connected.");
+    if (!label) throw new Error("Type a label name first.");
+    const { vec, feats, pos } = this._latest;
+    if (feats.length && !this.model.setFeatures(feats)) { this.model.clear(); this.model.setFeatures(feats); }
+    this.model.addPoint(vec, label, pos);
+  }
+  clearAll() { this.model.clear(); }
+  undoLast() { this.model.removeLast(); }
+  simSensor(f, v) { if (this.backend.isSim) this.backend.setSimSensor(f, v); }
+  simMotor(v) { if (this.backend.isSim && this.mode === MODE_TRAINING) this.backend.setManualMotor(v); }
+
+  exportJSON() { return JSON.stringify({ model: this.model.toJSON() }, null, 2); }
+  importJSON(text) {
+    const data = JSON.parse(text);
+    this.model.loadObj(data.model || { features: [], points: [] });
+    const feats = this.backend.sensorFeatures.filter(f => this.model.features.includes(f));
+    if (feats.length) this.selectedFeatures = feats;
+  }
+
+  tick() {
+    if (!this.backend.isSim) this.maybeReconfigure();
+    try {
+      const features = this.selectedFeatures.length ? this.selectedFeatures : this.backend.sensorFeatures.slice(0, 1);
+      const vec = this.backend.readSensorVector(features);
+      const pos = this.backend.readMotorPosition();
+      if (this.mode === MODE_RUN && this.backend.connected && this.model.length) {
+        const realLabel = this.model.predictReal(vec);
+        const baselineLabel = this.model.predictBaseline();
+        if (realLabel !== this.lastRealLabel) this.lastRealLabel = realLabel;
+        if (baselineLabel !== this.lastBaselineLabel) this.lastBaselineLabel = baselineLabel;
+        if (realLabel != null) {
+          const target = this.model.averagePositionFor(realLabel);
+          if (target) this.backend.moveMotorTo(target, 50);
+        }
+      } else {
+        this.lastRealLabel = null; this.lastBaselineLabel = null;
+      }
+      this._latest = { vec, feats: features, pos };
+    } catch (e) { /* keep loop alive */ }
+  }
+
+  markTally(which, correct) {
+    if (correct) this.tally[which].c += 1; else this.tally[which].w += 1;
+  }
+
+  snapshot() {
+    const connected = this.backend.connected;
+    const { vec, feats, pos } = this._latest;
+    const readings = connected ? Object.fromEntries(feats.map((f, i) => [f, vec[i]])) : {};
+    return {
+      hasLego: !!navigator.bluetooth,
+      backend: this.backend.name,
+      isSim: this.backend.isSim,
+      sensorKind: this.backend.sensorKind,
+      connected, mode: this.mode,
+      availableFeatures: this.backend.sensorFeatures.slice(),
+      selectedFeatures: this.selectedFeatures.slice(),
+      readings,
+      positions: connected ? pos : [],
+      labelCounts: this.model.labelCounts(),
+      count: this.model.length,
+      realLabel: this.lastRealLabel,
+      baselineLabel: this.lastBaselineLabel,
+      tally: JSON.parse(JSON.stringify(this.tally)),
+      motorConnected: !this.backend.isSim && this.backend.motorDev && this.backend.motorDev.connected,
+      sensorConnected: !this.backend.isSim && this.backend.sensorDev && this.backend.sensorDev.connected,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// UI
+// ---------------------------------------------------------------------------
+const APP = new BaselineApp();
+let S = null, inited = false;
+function el(id) { return document.getElementById(id); }
+
+function buildOnce() {
+  el("backendSel").onchange = () => APP.setBackend(el("backendSel").value);
+  el("addDeviceBtn").onclick = onAddDevice;
+  el("disconnectBtn").onclick = () => APP.backend.disconnect();
+  el("modeBtn").onclick = () => APP.setMode(APP.mode === MODE_RUN ? MODE_TRAINING : MODE_RUN);
+  el("recordBtn").onclick = () => tryDo(() => { APP.record(el("labelInput").value.trim()); });
+  el("undoBtn").onclick = () => APP.undoLast();
+  el("clearBtn").onclick = () => { if (confirm("Remove all recorded examples?")) APP.clearAll(); };
+  el("simMotor").oninput = () => APP.simMotor(parseFloat(el("simMotor").value));
+  el("saveBtn").onclick = onSave;
+  el("loadBtn").onclick = () => el("loadFile").click();
+  el("loadFile").onchange = onLoad;
+  el("baselineCorrect").onclick = () => APP.markTally("baseline", true);
+  el("baselineWrong").onclick = () => APP.markTally("baseline", false);
+  el("realCorrect").onclick = () => APP.markTally("real", true);
+  el("realWrong").onclick = () => APP.markTally("real", false);
+  if (!navigator.bluetooth) el("btWarn").classList.remove("hidden");
+  inited = true;
+}
+function tryDo(fn) { try { fn(); } catch (e) { alert(e.message); } }
+
+async function onAddDevice() {
+  try { await APP.backend.addDevice(); }
+  catch (e) { if (e && e.name !== "NotFoundError") alert("Connection failed:\n" + (e.message || e)); }
+}
+function onSave() {
+  const blob = new Blob([APP.exportJSON()], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "baseline_challenge.json"; a.click();
+  URL.revokeObjectURL(a.href);
+}
+function onLoad(ev) {
+  const file = ev.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => tryDo(() => APP.importJSON(reader.result));
+  reader.readAsText(file);
+  ev.target.value = "";
+}
+
+let lastFeatureKey = "", lastSimKey = "";
+function render() {
+  const s = S; if (!s) return;
+  if (!inited) buildOnce();
+
+  const hwConnected = s.connected;
+  el("connStatus").textContent = s.isSim ? "Simulated" : (hwConnected ? "Connected" : "Not connected");
+  el("connStatus").style.color = (s.isSim || hwConnected) ? "#bce8c6" : "#ffd0cd";
+  el("backendSel").value = s.isSim ? "sim" : "lego";
+  el("legoWrap").style.display = s.isSim ? "none" : "";
+  if (!s.isSim) {
+    el("motorDot").className = "dot" + (s.motorConnected ? " on" : "");
+    el("sensorDot").className = "dot" + (s.sensorConnected ? " on" : "");
+    el("motorStat").textContent = s.motorConnected ? "Motor: connected" : "Motor: not connected";
+    el("sensorStat").textContent = s.sensorConnected ? ("Sensor: connected (" + s.sensorKind + ")") : "Sensor: not connected";
+    el("disconnectBtn").style.display = (s.motorConnected || s.sensorConnected) ? "" : "none";
+  }
+  el("backendSel").disabled = !s.isSim && (s.motorConnected || s.sensorConnected);
+
+  const featKey = s.availableFeatures.join(",") + "|" + s.selectedFeatures.join(",");
+  if (featKey !== lastFeatureKey) {
+    lastFeatureKey = featKey;
+    const box = el("featureChecks"); box.innerHTML = "";
+    for (const f of s.availableFeatures) {
+      const lab = document.createElement("label"); lab.style.display = "block";
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.className = "featchk"; cb.value = f;
+      cb.checked = s.selectedFeatures.includes(f);
+      cb.onchange = () => APP.setFeatures([...document.querySelectorAll(".featchk:checked")].map(c => c.value));
+      lab.appendChild(cb); lab.appendChild(document.createTextNode(" " + f));
+      box.appendChild(lab);
+    }
+  }
+
+  el("simCard").style.display = s.isSim ? "" : "none";
+  if (s.isSim) {
+    if (s.availableFeatures.join(",") !== lastSimKey) {
+      lastSimKey = s.availableFeatures.join(",");
+      const box = el("simSensors"); box.innerHTML = "";
+      for (const f of s.availableFeatures) {
+        const wrap = document.createElement("div");
+        const lab = document.createElement("div"); lab.className = "muted"; lab.style.fontSize = "12px"; lab.textContent = f;
+        const sl = document.createElement("input");
+        sl.type = "range"; sl.min = 0; sl.max = 100; sl.value = 50; sl.className = "slider";
+        sl.oninput = () => APP.simSensor(f, parseFloat(sl.value));
+        wrap.appendChild(lab); wrap.appendChild(sl); box.appendChild(wrap);
+      }
+    }
+    el("simMotorWrap").style.display = "";
+    el("simMotor").disabled = (s.mode === "RUN");
+  } else {
+    el("simMotorWrap").style.display = "none";
+  }
+
+  const pill = el("modePill");
+  pill.textContent = s.mode; pill.className = "pill " + (s.mode === "RUN" ? "run" : "train");
+  el("modeBtn").textContent = s.mode === "RUN" ? "Switch to TRAINING mode" : "Switch to RUN mode";
+  el("recordBtn").disabled = (s.mode === "RUN") || !s.connected;
+  el("undoBtn").disabled = (s.mode === "RUN") || !s.connected;
+
+  if (s.connected && Object.keys(s.readings).length)
+    el("rSensor").textContent = "Sensor: " + Object.entries(s.readings).map(([k, v]) => k + "=" + Number(v).toFixed(0)).join(", ");
+  else el("rSensor").textContent = "Sensor: —";
+  el("rMotor").textContent = s.connected ? "Motor: " + s.positions.map(v => v.toFixed(0) + "°").join(", ") : "Motor: —";
+  el("rCount").textContent = "Recorded examples: " + s.count;
+
+  const bar = el("barChart"); bar.innerHTML = "";
+  const counts = s.labelCounts;
+  const labels = Object.keys(counts);
+  const maxC = labels.length ? Math.max(...labels.map(l => counts[l])) : 1;
+  if (!labels.length) {
+    const p = document.createElement("div"); p.className = "muted"; p.style.fontSize = "12px";
+    p.textContent = "No labels trained yet."; bar.appendChild(p);
+  }
+  for (const l of labels) {
+    const row = document.createElement("div"); row.className = "barrow";
+    const lab = document.createElement("div"); lab.className = "barlabel"; lab.textContent = l;
+    const track = document.createElement("div"); track.className = "bartrack";
+    const fill = document.createElement("div"); fill.className = "barfill";
+    fill.style.width = Math.max(4, (counts[l] / maxC) * 100) + "%";
+    track.appendChild(fill);
+    const cnt = document.createElement("div"); cnt.className = "barcount"; cnt.textContent = counts[l];
+    row.appendChild(lab); row.appendChild(track); row.appendChild(cnt);
+    bar.appendChild(row);
+  }
+
+  el("baselineLabel").textContent = (s.mode === "RUN" && s.baselineLabel) ? s.baselineLabel : "—";
+  el("realLabel").textContent = (s.mode === "RUN" && s.realLabel) ? s.realLabel : "—";
+
+  const bt = s.tally.baseline, rt = s.tally.real;
+  el("baselineAcc").textContent = bt.c + " / " + (bt.c + bt.w);
+  el("baselineAccPct").textContent = (bt.c + bt.w) ? Math.round(100 * bt.c / (bt.c + bt.w)) + "%" : "—";
+  el("realAcc").textContent = rt.c + " / " + (rt.c + rt.w);
+  el("realAccPct").textContent = (rt.c + rt.w) ? Math.round(100 * rt.c / (rt.c + rt.w)) + "%" : "—";
+}
+
+setInterval(() => { APP.tick(); S = APP.snapshot(); render(); }, 100);
+S = APP.snapshot(); render();
+</script>
+</body>
+</html>
